@@ -1,0 +1,255 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Judgment Clubhouse</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+    <div id="join-screen">
+        <h1>Judgment</h1>
+        <p>A Game of Prediction & Strategy</p>
+        <input type="text" id="player-name-input" placeholder="Enter your name">
+        <button id="join-game-btn">Join Game</button>
+    </div>
+
+    <div id="lobby-screen" style="display: none;">
+        <h2>Game Lobby</h2>
+        <h3>Players:</h3>
+        <ul id="player-list"></ul>
+        
+        <div id="claim-host-section" class="lobby-actions" style="display: none;">
+            <input type="password" id="claim-host-password-input" placeholder="Host Password (Optional)">
+            <button id="claim-host-btn">Become Host</button>
+        </div>
+        <div id="player-lobby-actions" class="lobby-actions" style="display: none;">
+            <button id="ready-btn">Ready</button>
+        </div>
+        
+        <div id="host-lobby-actions" class="lobby-actions" style="display: none;">
+            <div id="host-controls">
+                <button id="start-game-btn">Start Game</button>
+                <button id="configure-ai-btn">🤖 Configure AI Players</button>
+                <button id="end-session-btn">End Session</button>
+                <button id="hard-reset-btn" class="danger-btn">Hard Reset</button>
+            </div>
+        </div>
+
+        <p id="host-message" style="display: none;">(Waiting for the host to start the game)</p>
+    </div>
+
+    <div id="game-board" style="display: none;">
+        <div id="trick-winner-overlay"></div>
+        <div id="winner-celebration-overlay" class="hidden"></div>
+        <div id="move-announcement-banner" class="hidden"></div>
+        <div id="page-indicator"></div>
+
+        <div id="mobile-scroll-container">
+            <div id="left-column">
+                <div id="toast-notification"></div>
+
+                <div id="local-player-stats"></div>
+                <div id="local-player-score-board">
+                    <div class="score-box" id="my-bid-box">
+                        <h4>My Bid</h4>
+                        <span id="my-bid-value"></span>
+                    </div>
+                    <div class="score-box" id="my-tricks-box">
+                        <h4>Tricks Won</h4>
+                        <span id="my-tricks-value"></span>
+                    </div>
+                    <div class="score-box" id="my-score-box">
+                        <h4>My Score</h4>
+                        <span id="my-score-value"></span>
+                    </div>
+                </div>
+                
+                <div id="round-vitals">
+                    <div id="trump-vitals-tile" class="vitals-tile"></div>
+                    <div class="vitals-tile-group">
+                        <div id="cards-vitals-tile" class="vitals-tile"></div>
+                        <div id="bids-vitals-tile" class="vitals-tile"></div>
+                    </div>
+                </div>
+
+                <div id="action-banner">
+                    <span id="action-banner-text"></span>
+                    <div id="action-banner-input-area" style="display: none;">
+                        <select id="bid-input"></select>
+                        <button id="submit-bid-btn">Submit</button>
+                    </div>
+                </div>
+                <div class="hand-controls">
+                    <button id="rearrange-hand-btn">Arrange My Cards</button> </div>
+                <div id="local-player-hand-area"></div>
+            </div>
+
+            <div id="center-column">
+                <div id="game-status-banner"></div>
+                <div id="player-slots-container"></div>
+            </div>
+
+            <div id="right-column">
+                <div id="round-title-board"></div>
+                <div class="info-board-row">
+                    <div class="info-board" id="cards-dealt-board"></div>
+                    <div class="info-board" id="total-bids-board"></div>
+                </div>
+                <div class="info-board" id="trump-info-panel"></div>
+                <div class="info-board" id="lead-suit-info-panel"></div>
+                <button id="view-last-trick-btn" style="display: none;">View Last Trick</button>
+                <button id="view-game-logs-btn">Show Game Logs</button>
+                
+                <div id="game-log-container">
+                    <h4>Game Log</h4>
+                    <ul id="game-log-list"></ul>
+                </div>
+                <button id="endGameBtn" style="display: none;">END GAME</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="last-trick-modal" class="modal hidden">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>Previous Trick</h2>
+                <span class="close-btn" id="close-last-trick-modal">&times;</span>
+            </div>
+            <div id="last-trick-details"></div>
+        </div>
+    </div>
+
+    <div id="game-logs-modal" class="modal hidden">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>Full Game Log</h2>
+                <span class="close-btn" id="close-game-logs-modal">&times;</span>
+            </div>
+            <div id="full-game-log-list-container">
+                </div>
+        </div>
+    </div>
+
+    <div id="afk-notification-modal" class="modal hidden">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>Marked as AFK</h2>
+            </div>
+            <p>The host has marked you as away. Please click the button below to confirm you are back.</p>
+            <div class="modal-actions">
+                <button id="im-back-btn">I'm Back!</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="scoreboard-modal" class="modal" style="display: none;">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 id="scoreboard-title"></h2>
+            </div>
+            <div class="modal-scrollable-content">
+                <div id="scoreboard-table-container"></div>
+                <div id="next-round-preview"></div>
+                <div id="lobby-return-countdown"></div>
+                <div id="host-round-end-controls" class="modal-actions" style="display: none;">
+                    <button id="start-next-round-btn">Start Next Round</button>
+                    <button id="end-game-from-modal-btn">End Game</button>
+                </div>
+                <div id="player-round-end-controls" class="modal-actions" style="display: none;">
+                    <button id="player-ok-btn">OK</button>
+                </div>
+            </div>
+            </div>
+    </div>
+
+    <div id="confirm-end-game-modal" class="modal" style="display: none;">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>End Game</h2>
+            </div>
+            <p>Are you sure you want to end the game for everyone?</p>
+            <div class="modal-actions">
+                <button id="confirm-end-yes-btn">Yes, End Game</button>
+                <button id="confirm-end-no-btn">No, Continue</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="confirm-hard-reset-modal" class="modal" style="display: none;">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>Hard Reset Session</h2>
+            </div>
+            <p>Are you sure? This will end any active game and remove all other players from the lobby.</p>
+            <div class="modal-actions">
+                <button id="confirm-reset-yes-btn" class="danger-btn">Yes, Hard Reset</button>
+                <button id="confirm-reset-no-btn">No, Cancel</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="warning-modal" class="modal hidden">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 id="warning-modal-title">Alert</h2>
+            </div>
+            <p id="warning-modal-text"></p>
+            <div class="modal-actions">
+                <button id="warning-modal-ok-btn">OK</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="confirm-bid-modal" class="modal hidden">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>Confirm Your Bid</h2>
+            </div>
+            <p id="confirm-bid-text">You are bidding: <strong>3</strong></p>
+            <div class="modal-actions">
+                <button id="confirm-bid-yes-btn" class="confirm-btn">Confirm Bid</button>
+                <button id="confirm-bid-no-btn">Revise</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ROBO: AI Player Configuration Modal -->
+    <div id="robo-config-modal" class="modal hidden">
+        <div class="modal-content robo-config-content">
+            <div class="modal-header">
+                <h2>🤖 Configure AI Players</h2>
+            </div>
+            <p class="robo-config-subtitle">Add AI-controlled opponents to fill empty seats. At least one human player is required.</p>
+
+            <div class="robo-count-row">
+                <label for="robo-count-select">Number of AI Players:</label>
+                <select id="robo-count-select">
+                    <option value="0">None</option>
+                    <option value="1">1</option>
+                    <option value="2">2</option>
+                    <option value="3">3</option>
+                    <option value="4">4</option>
+                    <option value="5">5</option>
+                    <option value="6">6</option>
+                    <option value="7">7</option>
+                </select>
+            </div>
+
+            <div id="robo-config-table" class="robo-config-table" style="display: none;">
+                <!-- Populated dynamically by game.js -->
+            </div>
+
+            <div class="modal-actions">
+                <button id="robo-config-confirm-btn" class="confirm-btn">Add AI Players</button>
+                <button id="robo-config-skip-btn">No AI Players</button>
+            </div>
+        </div>
+    </div>
+    <!-- END ROBO Config Modal -->
+
+    <script src="/socket.io/socket.io.js"></script>
+    <script src="/game.js"></script>
+</body>
+</html>
