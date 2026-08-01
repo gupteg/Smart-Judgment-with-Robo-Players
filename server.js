@@ -36,6 +36,17 @@ const ROBO_TIMEOUT          = 15000; // ms — safety net; strategy must resolve
 const MAX_TOTAL_SEATS       = 8;     // host + humans + robos, combined
 const VALID_DIFFICULTIES    = ['Standard', 'Expert'];
 
+// --- ROBO: diagnostics -------------------------------------------------
+// I1 — telemetry. One console line per robo per round recording bid vs
+// tricks actually won, so bid bias can be MEASURED between games instead of
+// inferred from a few hands. Console only: Render's filesystem is ephemeral
+// and would silently discard a log file on every restart or deploy.
+// Off by default; enable with ROBO_TELEMETRY=1.
+const ROBO_TELEMETRY = process.env.ROBO_TELEMETRY === '1' || ROBO_FAST_TEST;
+// M2 — reasoning trace. Streams each robo's decision rationale to the HOST
+// only. Also gated, since it is a debugging aid rather than a game feature.
+const ROBO_TRACE     = process.env.ROBO_TRACE !== '0';
+
 let roboInstances   = new Map(); // Map<playerId, RoboPlayer> — never serialised to client
 let roboTurnPending  = false;    // Prevents double-scheduling
 const TRICK_REVIEW_MS = ROBO_FAST_TEST ? 50 : 10000;
@@ -125,8 +136,15 @@ function startNewRound() {
         phase: 'Bidding', nextRoundInfo: null, biddingPlayerIndex: biddingPlayerIndex,
         currentPlayerIndex: null,
     });
-    // --- ROBO: fresh memory every round (new hand, new trump) ---
-    roboInstances.forEach(robo => robo.resetMemory());
+    // --- ROBO: fresh memory AND fresh round context every round (new hand,
+    // new trump, new bid ledger). Seeded with this round's deal facts. ---
+    const roboDeal = {
+        handSize: gameState.numCardsToDeal,
+        trumpSuit: gameState.trumpSuit,
+        playerOrder: gameState.players.filter(p => p.status === 'Active').map(p => p.playerId),
+        dealerId: gameState.players[gameState.dealerIndex]?.playerId || null,
+    };
+    roboInstances.forEach(robo => robo.resetRound(roboDeal));
     addLog(`Round ${gameState.roundNumber} begins. Cards: ${gameState.numCardsToDeal}. Trump: ${gameState.trumpSuit}.`);
     io.emit('updateGameState', gameState);
     const firstBidder = gameState.players[biddingPlayerIndex];
@@ -137,6 +155,7 @@ function startNewRound() {
 }
 
 function handleEndOfRound() {
+    logRoboTelemetry(); // --- ROBO: I1, before scores mutate anything ---
     gameState.players.forEach(p => {
         if (p.status !== 'Active') { p.scoreHistory.push(null); return; }
         let roundScore = (p.tricksWon === p.bid) ? (10 + p.bid) : (p.bid * -1);
@@ -219,6 +238,9 @@ function evaluateTrick() {
     const winnerData = gameState.players.find(p => p.playerId === gameState.currentWinningPlayerId);
     if (winnerData) {
         winnerData.tricksWon++;
+        // --- ROBO: robos see the cards played, but were never told who WON.
+        // The trick ledger drives the running gap-to-target audit (R18). ---
+        recordTrickWinnerForRoboMemories(winnerData.playerId);
         io.emit('trickWon', { winnerName: winnerData.name });
         // MODIFIED: Server now logs the trick winner.
         addLog(`🏆 ${winnerData.name} wins the trick!`);
@@ -267,11 +289,19 @@ function applyBid(playerIndex, proposedBid) {
     }
     player.bid = proposedBid;
     addLog(`📣 ${player.name} bids ${player.bid}.`);
+    // --- ROBO: every robo sees every bid, in ORDER. Bidding order matters:
+    // a robo bidding last weights the residual-tricks signal far more
+    // heavily than one bidding first (B11). ---
+    recordBidForRoboMemories(player.playerId, proposedBid);
+
     const nextBidderIndex = findNextActivePlayer(gameState.biddingPlayerIndex, gameState.players);
     if (nextBidderIndex === findNextActivePlayer(gameState.dealerIndex, gameState.players)) {
         gameState.phase = 'Playing';
         gameState.biddingPlayerIndex = null;
         gameState.currentPlayerIndex = findNextActivePlayer(gameState.dealerIndex, gameState.players);
+        // --- ROBO: the table's over/under regime (T1) is now locked in. ---
+        roboInstances.forEach(robo => robo.markBiddingComplete());
+        announceTableRegime();
         addLog(`Bidding complete. ${gameState.players[gameState.currentPlayerIndex]?.name} starts.`);
     } else {
         gameState.biddingPlayerIndex = nextBidderIndex;
@@ -336,6 +366,71 @@ function recordVoidForRoboMemories(playerId, suit) {
     roboInstances.forEach(robo => robo.recordVoid(playerId, suit));
 }
 
+function recordBidForRoboMemories(playerId, bid) {
+    roboInstances.forEach(robo => robo.recordBid(playerId, bid));
+}
+
+function recordTrickWinnerForRoboMemories(playerId) {
+    roboInstances.forEach(robo => robo.recordTrickWinner(playerId));
+}
+
+/**
+ * T1 — log the table's structural position once bidding closes. The hook
+ * rule guarantees total bids never equal the hand size, so every round is
+ * either UNDERBID (spare tricks nobody claimed — somebody must eat them) or
+ * OVERBID (tricks are scarcer than claimed — somebody gets starved).
+ */
+function announceTableRegime() {
+    const total = gameState.players.reduce((s, p) => s + (p.bid || 0), 0);
+    const surplus = gameState.numCardsToDeal - total;
+    if (surplus > 0) {
+        addLog(`Total bids ${total} of ${gameState.numCardsToDeal} — ${surplus} spare trick${surplus === 1 ? '' : 's'} in play.`);
+    } else {
+        addLog(`Total bids ${total} of ${gameState.numCardsToDeal} — the table is over-bid by ${-surplus}.`);
+    }
+}
+
+/**
+ * M2 — forward a robo's reasoning to the HOST only. Never broadcast: it
+ * would reveal hand information to the whole table.
+ */
+function emitRoboTrace(roboPlayer, roboInstance) {
+    if (!ROBO_TRACE || !gameState) return;
+    const trace = roboInstance.lastTrace;
+    if (!trace) return;
+    const host = gameState.players.find(p => p.isHost && !p.isRobo && p.socketId);
+    if (!host) return;
+    io.to(host.socketId).emit('roboTrace', {
+        playerId: roboPlayer.playerId,
+        name: roboPlayer.name,
+        difficulty: roboPlayer.difficulty,
+        round: gameState.roundNumber,
+        trick: (gameState.numCardsToDeal - (roboPlayer.hand ? roboPlayer.hand.length : 0)),
+        trace,
+        at: Date.now(),
+    });
+}
+
+/**
+ * I1 — one console line per robo per round. Deliberately terse and greppable
+ * so a play session can be scanned for bid bias at a glance.
+ */
+function logRoboTelemetry() {
+    if (!ROBO_TELEMETRY || !gameState) return;
+    gameState.players.forEach(p => {
+        if (!p.isRobo) return;
+        const hit = p.tricksWon === p.bid;
+        const delta = p.tricksWon - p.bid;
+        const score = hit ? (10 + p.bid) : -p.bid;
+        console.log(
+            `[RoboStat] round=${gameState.roundNumber} cards=${gameState.numCardsToDeal} ` +
+            `trump=${gameState.trumpSuit} tier=${p.difficulty} name=${p.name} ` +
+            `bid=${p.bid} won=${p.tricksWon} delta=${delta >= 0 ? '+' : ''}${delta} ` +
+            `result=${hit ? 'HIT' : (delta > 0 ? 'OVERSHOT' : 'SHORT')} score=${score}`
+        );
+    });
+}
+
 // ─────────────────────────────────────────────────────────────────────────
 // ROBO: turn scheduling
 // ─────────────────────────────────────────────────────────────────────────
@@ -362,7 +457,11 @@ function buildPlayContext() {
     const sample = activePlayers.find(p => p.hand.length >= 0);
     const tricksPlayedSoFar = sample ? (gameState.numCardsToDeal - sample.hand.length) : 0;
     const tricksRemaining = gameState.numCardsToDeal - tricksPlayedSoFar;
-    return { tricksPlayedSoFar, tricksRemaining };
+    // --- ROBO: R10 — seat position within the trick. A "winning" card that
+    // three players still get to beat is not a winner; without this the robo
+    // plays its cheapest winner first-to-act and loses the trick anyway. ---
+    const playersYetToAct = Math.max(0, activePlayers.length - gameState.currentTrick.length - 1);
+    return { tricksPlayedSoFar, tricksRemaining, playersYetToAct };
 }
 
 /**
@@ -436,6 +535,7 @@ async function processRoboTurn() {
             const bidPromise = roboInstance.makeBid(gameState, roboIndex, context);
             const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error('Robo timeout')), ROBO_TIMEOUT));
             const bid = await Promise.race([bidPromise, timeoutPromise]);
+            emitRoboTrace(roboPlayer, roboInstance); // --- ROBO: M2 ---
             applyBid(roboIndex, bid);
         } catch (err) {
             console.error(`[Robo] Error during ${roboPlayer.name}'s bid, falling back to 0:`, err.message);
@@ -458,6 +558,7 @@ async function processRoboTurn() {
             const movePromise = roboInstance.makeMove(gameState, roboIndex, context);
             const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error('Robo timeout')), ROBO_TIMEOUT));
             const card = await Promise.race([movePromise, timeoutPromise]);
+            emitRoboTrace(roboPlayer, roboInstance); // --- ROBO: M2 ---
             const result = applyCardPlay(roboIndex, card);
             if (!result.ok) {
                 // Strategy returned something the server considers illegal —
