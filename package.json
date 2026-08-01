@@ -1,0 +1,19 @@
+{
+  "name": "judgment-clubhouse",
+  "version": "1.0.0",
+  "description": "A Game of Prediction & Strategy",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "test": "node tests/test-decision-engine.js && echo '--- Run tests/test-robos.js separately against a running server (see tests/README.md) ---'"
+  },
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "express": "^4.19.2",
+    "socket.io": "^4.7.5"
+  },
+  "devDependencies": {
+    "socket.io-client": "^4.8.3"
+  }
+}
