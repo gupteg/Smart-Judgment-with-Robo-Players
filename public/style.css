@@ -608,6 +608,129 @@ button:disabled { background-color: #555; border-color: #777; cursor: not-allowe
     border-left: 3px solid var(--gold-accent);
 }
 
+/* --- ROBO: M2 host-only reasoning panel --- */
+#robo-debug-toggle {
+    position: fixed;
+    right: 14px;
+    bottom: 14px;
+    z-index: 900;
+    width: 46px;
+    height: 46px;
+    border-radius: 50%;
+    font-size: 1.25em;
+    line-height: 1;
+    padding: 0;
+    cursor: pointer;
+    background: linear-gradient(135deg, var(--teak-light), var(--teak-dark));
+    color: var(--gold-accent);
+    border: 2px solid var(--gold-accent);
+    box-shadow: 0 3px 10px rgba(0, 0, 0, 0.45);
+}
+#robo-debug-toggle.hidden { display: none; }
+
+#robo-debug-panel {
+    position: fixed;
+    right: 14px;
+    bottom: 14px;
+    z-index: 901;
+    width: min(420px, calc(100vw - 28px));
+    max-height: min(60vh, 520px);
+    display: flex;
+    flex-direction: column;
+    background-color: var(--teak-dark);
+    border: 2px solid var(--gold-accent);
+    border-radius: 10px;
+    box-shadow: 0 6px 22px rgba(0, 0, 0, 0.55);
+    overflow: hidden;
+}
+#robo-debug-panel.hidden { display: none; }
+
+#robo-debug-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 8px 10px;
+    background: linear-gradient(135deg, var(--teak-light), var(--teak-dark));
+    border-bottom: 1px solid var(--gold-accent);
+    flex-shrink: 0;
+}
+
+#robo-debug-title {
+    color: var(--gold-accent);
+    font-weight: 700;
+    font-size: 0.92em;
+    letter-spacing: 0.02em;
+}
+
+#robo-debug-controls { display: flex; gap: 6px; }
+
+#robo-debug-controls button {
+    background: none;
+    border: 1px solid var(--teak-light);
+    color: var(--light-text);
+    border-radius: 5px;
+    font-size: 0.78em;
+    padding: 3px 8px;
+    cursor: pointer;
+    line-height: 1.2;
+}
+#robo-debug-controls button:hover { border-color: var(--gold-accent); color: var(--gold-accent); }
+#robo-debug-close { font-size: 1.05em !important; padding: 0 7px !important; }
+
+#robo-debug-body {
+    overflow-y: auto;
+    padding: 8px;
+    display: flex;
+    flex-direction: column;
+    gap: 7px;
+}
+
+.robo-trace-entry {
+    background-color: rgba(0, 0, 0, 0.28);
+    border: 1px solid var(--teak-light);
+    border-left: 3px solid var(--gold-accent);
+    border-radius: 6px;
+    padding: 7px 9px;
+    font-size: 0.79em;
+    line-height: 1.45;
+    color: var(--light-text);
+}
+.robo-trace-entry.robo-trace-bid { border-left-color: #7fc9ff; }
+
+.robo-trace-top {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 8px;
+    margin-bottom: 3px;
+}
+
+.robo-trace-name { font-weight: 700; color: var(--gold-accent); }
+.robo-trace-meta { font-size: 0.85em; opacity: 0.65; white-space: nowrap; }
+.robo-trace-headline { font-weight: 600; margin-bottom: 4px; }
+
+.robo-trace-lines {
+    margin: 0;
+    padding-left: 14px;
+    opacity: 0.85;
+    font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    font-size: 0.92em;
+}
+.robo-trace-lines li { margin: 1px 0; word-break: break-word; }
+
+.robo-trace-empty {
+    opacity: 0.6;
+    font-size: 0.85em;
+    text-align: center;
+    padding: 14px 8px;
+}
+
+@media (max-width: 600px) {
+    #robo-debug-panel { max-height: 52vh; }
+    .robo-trace-entry { font-size: 0.75em; }
+}
+
 /* ─────────────────────────────────────────────────────────────────────── */
 /* END ROBO Styles                                                         */
 /* ─────────────────────────────────────────────────────────────────────── */
