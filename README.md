@@ -1,104 +1,115 @@
-# Tests
+# Judgment Clubhouse
 
-Three harnesses, in increasing order of setup cost.
-
-## 1. `test-decision-engine.js` — unit tests
-
-Pure functions and strategy decisions against hand-built game states. No server,
-no sockets, no network. Runs in well under a second.
+Multiplayer Judgment (Oh Hell) — Node.js + Express + Socket.IO, server-authoritative,
+vanilla JS client, in-memory state.
 
 ```bash
-node tests/test-decision-engine.js
+npm install
+npm start                 # http://localhost:5000
 ```
 
-Covers the bidding model (in-play factor, outstanding-higher-cards scoring,
-EV-maximising bid selection, shading direction, hook-rule resolution), the play
-mode state machine including the new Mode D, trump-aware card cost, and the
-specific play rules that were wrong before Phase 1 — safe high discard, never
-leading a bankable Ace while shedding, burning the highest card when forced to
-win, and ducking rather than cashing a winner the target no longer needs.
+## Robo (AI) players
 
-Exit code is non-zero if anything fails, so it is safe to wire into CI.
+Two tiers, configured by the host from the lobby.
 
-## 2. `calibrate.js` — headless self-play calibration
+| | Standard | Expert |
+|---|---|---|
+| Bidding | Naive per-card scores, summed and rounded | Win-probability model → EV-maximising bid |
+| Memory | None | Every card played, every revealed void |
+| Table awareness | None | Bid ledger, over/under regime, opponent states |
+| Play | 3-mode state machine, this trick only | 4-posture engine with a running plan |
 
-Deals random rounds and lets the strategies bid and play against each other with
-no sockets and no think-time delays, then reports bid-versus-actual calibration
-per tier. This is the tool that catches systematic bid bias.
+**Standard is deliberately frozen.** It is meant to be the weaker opponent; the
+gap between tiers is the product.
 
-```bash
-node tests/calibrate.js [rounds] [numPlayers]
-node tests/calibrate.js 1000 4          # default: 400 rounds, 4 players
-```
-
-Reports, for each tier: average bid, average tricks won, the bias between them,
-the exact-hit rate, overshoot and undershoot rates, and average round score.
-Also breaks the Expert tier down by hand size, which is where miscalibration
-usually shows up first.
-
-**What good output looks like** (4 players, current tuning):
+### Architecture
 
 ```
-Expert    avg bid 1.26  avg won 1.23   bias -0.03
-          exact 50.6%   overshoot 21.2%   undershoot 28.2%
-          avg round score 4.79
-Standard  avg bid 1.11  avg won 1.52   bias +0.42
-          exact 44.6%   overshoot 37.5%   undershoot 17.9%
-          avg round score 4.18
+server.js                        Game engine. Robo hooks only — no strategy logic.
+server-src/
+  decision-engine.js             Pure static heuristics. No state, no side effects.
+  strategy.js                    StandardStrategy / ExpertStrategy / StrategyFactory. Stateless.
+  card-memory.js                 CardMemory / NoOpCardMemory — cards played, voids.
+  round-context.js               RoundContext / NoOpRoundContext — bid ledger, trick winners.
+  player.js                      RoboPlayer — owns strategy + brain, holds the reasoning trace.
 ```
 
-Two things to watch. **Bias** should sit near zero — a large negative number
-means the tier is bidding more than it wins, a large positive one means it is
-underbidding. **Average round score** is the bottom line: Expert must beat
-Standard, or the extra machinery is not earning its place.
+A robo's private state is a **brain**:
 
-Note this is a diagnostic, not the Phase 3 training harness. It uses a fixed
-tuning set and reports; it does not search the parameter space.
-
-Run at least 500 rounds before drawing conclusions — single-game impressions are
-exactly what this harness exists to replace.
-
-## 3. `test-robos.js` — end-to-end integration
-
-Drives a full game over real Socket.IO against a running server: one scripted
-human plus five robos, mixed tiers. Checks for hook-rule violations, illegal
-plays, server errors, and that reasoning traces reach the host.
-
-Needs a server running with fast think-times, in a separate terminal:
-
-```bash
-ROBO_FAST_TEST=1 PORT=5066 node server.js
+```js
+brain = { memory: CardMemory, round: RoundContext }
 ```
 
-then:
+passed into every strategy call. The split matters: `brain` is what this robo
+privately knows and has inferred, while `gs` + `context` is what the table
+publicly shows. RoundContext stores **observed facts only** — every derived value
+(posture, slack, banked winners, opponent states) is recomputed fresh each turn
+by pure functions in `decision-engine.js`, so there is no staleness bug class.
 
-```bash
-node tests/test-robos.js
+Strategy methods return objects, not bare values:
+
+```js
+selectBid(gs, playerIndex, brain, context)   // -> { bid,  trace }
+selectCard(gs, playerIndex, brain, context)  // -> { card, trace }
 ```
 
-Exits non-zero if any check fails.
+The trace travels in the return value, which is what keeps strategies stateless;
+`RoboPlayer` holds on to it.
 
-## Environment flags
+### How the Expert bids
+
+1. **Per-card win probabilities**, from how many higher cards in the suit are
+   unaccounted for, adjusted for ruff risk and long-suit establishment.
+2. **In-play factor.** Only `numPlayers × handSize` of the 52 cards get dealt. In
+   a 4-player 6-card round that is 24 cards, so an unseen King is only ~39%
+   likely to exist in anybody's hand at all.
+3. **Shading** against prior bids, weighted by bidding position — heavy prior
+   bids mean strong opponent hands, so shade down; the first bidder ignores the
+   signal, the dealer weights it fully.
+4. **Calibration** onto real trick counts. Tricks are zero-sum across the table,
+   but a model looking only at its own hand cannot enforce that and drifts
+   optimistic. Two fitted constants correct the scale.
+5. **EV maximisation.** Scoring is `+(10 + bid)` on an exact hit and `−bid` on a
+   miss, so bidding 0 has *zero* downside. The engine builds a Poisson-binomial
+   distribution over tricks won and picks `argmax P(b)·(10 + 2b) − b` rather
+   than rounding a point estimate.
+
+### How the Expert plays
+
+Each turn it builds a situation snapshot and picks one of four postures:
+
+| Posture | When | Behaviour |
+|---|---|---|
+| **GRAB** | Needs tricks, short of cover | Draw trumps when long; cash side-suit winners before they can be ruffed; win with the cheapest card that survives the players still to act |
+| **SHED** | Target met or projected to overshoot | Never lead a banked winner or a trump; safe high discard under a winner it cannot beat; when forced to win, burn its biggest card |
+| **BALANCE** | On pace | Ducks if banked winners already cover the target, cashing them later instead |
+| **SABOTAGE** | Bid unreachable, score locked | Overtake players who still need tricks; let players who have met their bid win |
+
+The **table regime** modulates all of it. The hook rule guarantees total bids
+never equal the hand size, so every round is either underbid (spare tricks exist
+and somebody must eat them → duck early) or overbid (tricks are scarcer than
+claimed → grab yours early).
+
+### Diagnostics
 
 | Flag | Effect |
 |---|---|
-| `ROBO_FAST_TEST=1` | Shrinks all robo think-time delays to milliseconds. **Testing only** — never set in production. Also turns telemetry on. |
-| `ROBO_TELEMETRY=1` | Prints one `[RoboStat]` line per robo per round: bid, tricks won, delta, hit/overshot/short, score. Off by default. |
-| `ROBO_TRACE=0` | Disables the host-only reasoning panel feed. On by default. |
+| `ROBO_TELEMETRY=1` | One `[RoboStat]` console line per robo per round — bid, tricks won, delta, result |
+| `ROBO_TRACE=0` | Disables the host-only reasoning panel (on by default) |
+| `ROBO_FAST_TEST=1` | Shrinks think-time delays for automated testing. **Never set in production** |
 
-### Reading telemetry
+The **reasoning panel** appears as a 🤖 button, bottom-right, for the host only
+and only when robos are at the table. It shows each decision's mode, slack,
+table regime, banked winners and the specific rule that produced the choice.
 
-```
-[RoboStat] round=3 cards=6 trump=Diamonds tier=Expert name=Bot-Exp-1 bid=2 won=1 delta=-1 result=SHORT score=-2
-```
+See `tests/README.md` for the three test harnesses.
 
-`delta` is `won - bid`. `SHORT` means the robo won fewer tricks than it bid;
-`OVERSHOT` means more. To check for bias across a session:
+## Known limitations
 
-```bash
-ROBO_TELEMETRY=1 node server.js | grep RoboStat | grep Expert
-```
-
-On Render these appear in the dashboard Logs tab. The filesystem there is
-ephemeral, so copy anything worth keeping before it rolls off — that is why
-telemetry goes to the console rather than a file.
+- Opponent hand inference is not implemented; the engine reasons from bids,
+  revealed voids and cards played, not from a modelled distribution over hands.
+- Endgame play is heuristic. With three or fewer tricks left an exact or
+  Monte-Carlo search would be both cheap and considerably stronger.
+- Tuning constants are collected in `TUNING` at the top of `decision-engine.js`
+  and were fitted by hand against `tests/calibrate.js`. A proper search would
+  do better.
