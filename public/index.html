@@ -215,6 +215,22 @@
         </div>
     </div>
 
+    <!-- ROBO: M2 — host-only AI reasoning panel.
+         Rendered only for the host, hidden until toggled on. Shows why each
+         robo bid or played what it did: mode, slack, table regime, banked
+         winners and the specific rule that produced the choice. -->
+    <div id="robo-debug-panel" class="hidden">
+        <div id="robo-debug-header">
+            <span id="robo-debug-title">🤖 AI Reasoning</span>
+            <div id="robo-debug-controls">
+                <button id="robo-debug-clear" title="Clear log">Clear</button>
+                <button id="robo-debug-close" title="Hide panel">&times;</button>
+            </div>
+        </div>
+        <div id="robo-debug-body"></div>
+    </div>
+    <button id="robo-debug-toggle" class="hidden" title="Show AI reasoning">🤖</button>
+
     <!-- ROBO: AI Player Configuration Modal -->
     <div id="robo-config-modal" class="modal hidden">
         <div class="modal-content robo-config-content">
