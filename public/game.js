@@ -32,6 +32,16 @@ window.addEventListener('DOMContentLoaded', () => {
     const roboConfigTable      = document.getElementById('robo-config-table');
     const roboConfigConfirmBtn = document.getElementById('robo-config-confirm-btn');
     const roboConfigSkipBtn    = document.getElementById('robo-config-skip-btn');
+
+    // --- ROBO: M2 reasoning panel (host only) ---
+    const roboDebugPanel  = document.getElementById('robo-debug-panel');
+    const roboDebugBody   = document.getElementById('robo-debug-body');
+    const roboDebugToggle = document.getElementById('robo-debug-toggle');
+    const roboDebugClear  = document.getElementById('robo-debug-clear');
+    const roboDebugClose  = document.getElementById('robo-debug-close');
+    const ROBO_TRACE_LIMIT = 60;   // keep the panel light; oldest entries drop off
+    let roboTraceEntries = [];
+    let roboDebugOpen = false;
     // --- END ROBO References ---
 
     socket.on('connect', () => {
@@ -268,6 +278,24 @@ window.addEventListener('DOMContentLoaded', () => {
             socket.emit('hardReset');
         });
 
+        // --- ROBO: M2 panel controls ---
+        roboDebugToggle.addEventListener('click', () => {
+            roboDebugOpen = true;
+            roboDebugPanel.classList.remove('hidden');
+            roboDebugToggle.classList.add('hidden');
+            renderRoboTraces();
+        });
+        roboDebugClose.addEventListener('click', () => {
+            roboDebugOpen = false;
+            roboDebugPanel.classList.add('hidden');
+            roboDebugToggle.classList.remove('hidden');
+        });
+        roboDebugClear.addEventListener('click', () => {
+            roboTraceEntries = [];
+            renderRoboTraces();
+        });
+        // --- END ROBO M2 controls ---
+
         const warningModal = document.getElementById('warning-modal');
         document.getElementById('warning-modal-ok-btn').addEventListener('click', () => {
             warningModal.style.display = 'none';
@@ -300,6 +328,86 @@ window.addEventListener('DOMContentLoaded', () => {
     socket.on('invalidBid', ({ message }) => showWarningModal('Invalid Bid', message));
 
     // --- ROBO: Show config modal when host successfully claims host role ---
+    // --- ROBO: M2 — reasoning trace. Sent to the HOST only by the server, so
+    // no hand information leaks to the rest of the table. ---
+    socket.on('roboTrace', (entry) => {
+        if (!entry || !entry.trace) return;
+        roboTraceEntries.unshift(entry);
+        if (roboTraceEntries.length > ROBO_TRACE_LIMIT) roboTraceEntries.length = ROBO_TRACE_LIMIT;
+        if (roboDebugOpen) renderRoboTraces();
+    });
+
+    function renderRoboTraces() {
+        if (!roboDebugBody) return;
+        roboDebugBody.innerHTML = '';
+        if (roboTraceEntries.length === 0) {
+            const empty = document.createElement('div');
+            empty.className = 'robo-trace-empty';
+            empty.textContent = 'No AI decisions yet this session.';
+            roboDebugBody.appendChild(empty);
+            return;
+        }
+        roboTraceEntries.forEach(entry => {
+            const t = entry.trace;
+            const div = document.createElement('div');
+            div.className = 'robo-trace-entry' + (t.kind === 'bid' ? ' robo-trace-bid' : '');
+
+            const top = document.createElement('div');
+            top.className = 'robo-trace-top';
+            const name = document.createElement('span');
+            name.className = 'robo-trace-name';
+            name.textContent = `${entry.name} · ${t.tier}`;
+            const meta = document.createElement('span');
+            meta.className = 'robo-trace-meta';
+            meta.textContent = t.kind === 'bid'
+                ? `R${entry.round} bid`
+                : `R${entry.round} trick ${entry.trick + 1}`;
+            top.appendChild(name);
+            top.appendChild(meta);
+            div.appendChild(top);
+
+            const headline = document.createElement('div');
+            headline.className = 'robo-trace-headline';
+            headline.textContent = t.headline || '';
+            div.appendChild(headline);
+
+            if (Array.isArray(t.lines) && t.lines.length > 0) {
+                const ul = document.createElement('ul');
+                ul.className = 'robo-trace-lines';
+                t.lines.forEach(line => {
+                    const li = document.createElement('li');
+                    li.textContent = line;
+                    ul.appendChild(li);
+                });
+                div.appendChild(ul);
+            }
+            roboDebugBody.appendChild(div);
+        });
+    }
+
+    /**
+     * Show the panel's launcher only to the host, and only when there is at
+     * least one robo at the table. Everyone else never sees it exists.
+     */
+    function updateRoboDebugVisibility(gs) {
+        const me = gs.players.find(p => p.playerId === myPersistentPlayerId);
+        const hasRobos = gs.players.some(p => p.isRobo);
+        const eligible = !!(me && me.isHost && hasRobos);
+        if (!eligible) {
+            roboDebugPanel.classList.add('hidden');
+            roboDebugToggle.classList.add('hidden');
+            return;
+        }
+        if (roboDebugOpen) {
+            roboDebugPanel.classList.remove('hidden');
+            roboDebugToggle.classList.add('hidden');
+        } else {
+            roboDebugPanel.classList.add('hidden');
+            roboDebugToggle.classList.remove('hidden');
+        }
+    }
+    // --- END ROBO M2 ---
+
     socket.on('showRoboConfig', () => {
         roboCountSelect.value = '0';
         roboConfigTable.style.display = 'none';
@@ -516,6 +624,9 @@ window.addEventListener('DOMContentLoaded', () => {
     });
 
     socket.on('lobbyUpdate', (players) => {
+        // --- ROBO: M2 — no game in progress, so no reasoning to show ---
+        roboDebugPanel.classList.add('hidden');
+        roboDebugToggle.classList.add('hidden');
         // --- *** NEW: Check if game was in progress and show modal *** ---
         const gameBoard = document.getElementById('game-board');
         const wasInGame = gameBoard.style.display === 'flex';
@@ -704,6 +815,7 @@ window.addEventListener('DOMContentLoaded', () => {
         if (endGameBtn) {
             endGameBtn.style.display = myPlayer.isHost ? 'block' : 'none';
         }
+        updateRoboDebugVisibility(gs); // --- ROBO: M2 ---
     }
 
     // MODIFIED: Added explicit check for bidding phase to show banner.
