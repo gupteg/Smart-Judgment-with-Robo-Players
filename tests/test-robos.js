@@ -2,6 +2,10 @@ const { io } = require('socket.io-client');
 
 const URL = 'http://localhost:5066';
 let hookViolations = 0;
+let traceCount = 0;
+let expertTraces = 0;
+let malformedTraces = 0;
+let expertPlayShown = 0;
 let illegalPlays = 0;
 let roundsCompleted = 0;
 let errorsSeen = [];
@@ -34,6 +38,21 @@ function makeHuman() {
         setTimeout(() => socket.emit('startGame'), 500);
     });
 
+    // --- ROBO: M2 — the host should receive a reasoning trace for every
+    // robo decision. Count them and sanity-check their shape. ---
+    socket.on('roboTrace', (entry) => {
+        traceCount++;
+        if (!entry || !entry.trace || !entry.trace.headline) {
+            malformedTraces++;
+            return;
+        }
+        if (entry.trace.tier === 'Expert') expertTraces++;
+        if (entry.trace.tier === 'Expert' && entry.trace.kind === 'play' && expertPlayShown < 3) { expertPlayShown++;
+            console.log(`[TRACE] ${entry.name} (${entry.trace.kind}): ${entry.trace.headline}`);
+            (entry.trace.lines || []).forEach(l => console.log(`         ${l}`));
+        }
+    });
+
     socket.on('announce', (msg) => console.log('[ANNOUNCE]', msg));
     socket.on('invalidBid', (msg) => {
         console.log('[INVALID BID]', msg);
@@ -58,6 +77,9 @@ function makeHuman() {
         console.log('Winners:', winners.map(w => `${w.name}=${w.score}`).join(', '));
         console.log('Final scores:', gs.players.map(p => `${p.name}=${p.score}`).join(', '));
         console.log('Hook violations:', hookViolations, '| Illegal plays:', illegalPlays, '| Errors:', errorsSeen.length);
+        console.log('Reasoning traces received:', traceCount, '| from Expert tier:', expertTraces, '| malformed:', malformedTraces);
+        const traceOk = traceCount > 0 && malformedTraces === 0 && expertTraces > 0;
+        if (!traceOk) errorsSeen.push('roboTrace delivery failed');
         console.log(hookViolations === 0 && illegalPlays === 0 && errorsSeen.length === 0
             ? '\n=== ALL CHECKS PASSED: full game completed cleanly with robos ==='
             : '\n=== FAILURES DETECTED ===');
@@ -77,6 +99,7 @@ function makeHuman() {
             if (roundsCompleted >= 8) {
                 console.log('\n--- TEST COMPLETE: 4 rounds finished without crash ---');
                 console.log('Hook violations:', hookViolations, '| Illegal plays:', illegalPlays, '| Errors:', errorsSeen.length);
+        console.log('Reasoning traces received:', traceCount, '| from Expert tier:', expertTraces, '| malformed:', malformedTraces);
                 process.exit(hookViolations > 0 || illegalPlays > 0 || errorsSeen.length > 0 ? 1 : 0);
             }
             setTimeout(() => socket.emit('startNextRound'), 1000);
@@ -86,6 +109,7 @@ function makeHuman() {
         if (gs.phase === 'GameOver') {
             console.log('\n--- GAME OVER reached before 4 rounds tested ---');
             console.log('Hook violations:', hookViolations, '| Illegal plays:', illegalPlays, '| Errors:', errorsSeen.length);
+        console.log('Reasoning traces received:', traceCount, '| from Expert tier:', expertTraces, '| malformed:', malformedTraces);
             process.exit(0);
         }
 
