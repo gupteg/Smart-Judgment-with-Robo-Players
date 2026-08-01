@@ -5,7 +5,9 @@
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "test": "node tests/test-decision-engine.js && echo '--- Run tests/test-robos.js separately against a running server (see tests/README.md) ---'"
+    "test": "node tests/test-decision-engine.js",
+    "calibrate": "node tests/calibrate.js 1000 4",
+    "test:e2e": "echo 'Start a server first: ROBO_FAST_TEST=1 PORT=5066 node server.js' && node tests/test-robos.js"
   },
   "author": "",
   "license": "ISC",
